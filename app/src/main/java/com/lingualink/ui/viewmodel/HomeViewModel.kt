@@ -2,6 +2,7 @@ package com.lingualink.ui.viewmodel
 
 import android.app.Application
 import android.provider.Settings
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lingualink.domain.model.DeviceInfo
@@ -57,17 +58,25 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
 
-    private val fingerprint = Settings.Secure.getString(
-        application.contentResolver, Settings.Secure.ANDROID_ID
-    ) ?: UUID.randomUUID().toString()
+    private val fingerprint: String = try {
+        Settings.Secure.getString(application.contentResolver, Settings.Secure.ANDROID_ID)
+            ?: UUID.randomUUID().toString()
+    } catch (e: Exception) {
+        UUID.randomUUID().toString()
+    }
 
-    private val deviceAlias = android.os.Build.MODEL
+    private val deviceAlias: String = android.os.Build.MODEL ?: "Android"
 
     private var httpServer: FanyiHttpServer? = null
     private var multicastDiscovery: MulticastDiscovery? = null
 
     init {
-        startServer()
+        try {
+            startServer()
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "Failed to start server", e)
+            _uiState.value = _uiState.value.copy(errorMessage = "服务启动失败: ${e.message}")
+        }
     }
 
     private fun startServer() {
@@ -75,7 +84,7 @@ class HomeViewModel @Inject constructor(
         server.getDeviceInfo = {
             com.lingualink.network.dto.DeviceInfoDto(
                 alias = deviceAlias,
-                deviceModel = android.os.Build.MODEL,
+                deviceModel = android.os.Build.MODEL ?: "Unknown",
                 fingerprint = fingerprint,
                 port = DeviceInfo.DEFAULT_PORT
             )
@@ -141,7 +150,6 @@ class HomeViewModel @Inject constructor(
         )
         _uiState.value = state.copy(messages = state.messages + localMsg)
 
-        // Local translation
         viewModelScope.launch {
             try {
                 val engine = if (onlineEngine.isAvailable()) onlineEngine else offlineEngine
@@ -154,7 +162,6 @@ class HomeViewModel @Inject constructor(
                 )
                 updateMessage(updatedMsg)
 
-                // Broadcast to connected devices
                 val resultDto = TranslateResultDto(
                     requestId = localMsg.id,
                     senderId = fingerprint,
@@ -169,43 +176,52 @@ class HomeViewModel @Inject constructor(
                     deviceClient.sendTranslationResult(device, resultDto)
                 }
             } catch (e: Exception) {
+                Log.e("HomeViewModel", "Translation failed", e)
                 _uiState.value = _uiState.value.copy(errorMessage = "翻译失败: ${e.message}")
             }
         }
     }
 
     private suspend fun handleIncomingRequest(request: TranslateRequestDto) {
-        val engine = if (onlineEngine.isAvailable()) onlineEngine else offlineEngine
-        val result = engine.translate(
-            TranslationRequest(request.text, request.sourceLang, request.targetLang)
-        )
-        val msg = ChatMessage(
-            id = request.requestId,
-            text = request.text,
-            translatedText = result.translatedText,
-            senderAlias = request.senderAlias,
-            senderId = request.senderId,
-            isLocal = false,
-            sourceLang = request.sourceLang,
-            targetLang = request.targetLang,
-            mode = result.mode
-        )
-        _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+        try {
+            val engine = if (onlineEngine.isAvailable()) onlineEngine else offlineEngine
+            val result = engine.translate(
+                TranslationRequest(request.text, request.sourceLang, request.targetLang)
+            )
+            val msg = ChatMessage(
+                id = request.requestId,
+                text = request.text,
+                translatedText = result.translatedText,
+                senderAlias = request.senderAlias,
+                senderId = request.senderId,
+                isLocal = false,
+                sourceLang = request.sourceLang,
+                targetLang = request.targetLang,
+                mode = result.mode
+            )
+            _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "Handle incoming request failed", e)
+        }
     }
 
     private fun handleIncomingResult(result: TranslateResultDto) {
-        val msg = ChatMessage(
-            id = result.requestId,
-            text = result.originalText,
-            translatedText = result.translatedText,
-            senderAlias = "Remote",
-            senderId = result.senderId,
-            isLocal = false,
-            sourceLang = result.sourceLang,
-            targetLang = result.targetLang,
-            mode = TranslationMode.valueOf(result.translationMode.uppercase())
-        )
-        _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+        try {
+            val msg = ChatMessage(
+                id = result.requestId,
+                text = result.originalText,
+                translatedText = result.translatedText,
+                senderAlias = "Remote",
+                senderId = result.senderId,
+                isLocal = false,
+                sourceLang = result.sourceLang,
+                targetLang = result.targetLang,
+                mode = TranslationMode.valueOf(result.translationMode.uppercase())
+            )
+            _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "Handle incoming result failed", e)
+        }
     }
 
     private fun updateMessage(msg: ChatMessage) {
@@ -219,15 +235,19 @@ class HomeViewModel @Inject constructor(
 
     private fun buildMulticastDto() = MulticastDto(
         alias = deviceAlias,
-        deviceModel = android.os.Build.MODEL,
+        deviceModel = android.os.Build.MODEL ?: "Unknown",
         fingerprint = fingerprint,
         port = DeviceInfo.DEFAULT_PORT,
         announcement = true
     )
 
     override fun onCleared() {
-        httpServer?.stop()
-        multicastDiscovery?.stop()
+        try {
+            httpServer?.stop()
+            multicastDiscovery?.stop()
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "Error stopping services", e)
+        }
         super.onCleared()
     }
 }

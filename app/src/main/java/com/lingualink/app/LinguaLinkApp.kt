@@ -3,7 +3,7 @@ package com.lingualink.app
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.os.Build
+import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
@@ -11,10 +11,16 @@ class LinguaLinkApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannels()
+        try {
+            createNotificationChannels()
+        } catch (e: Exception) {
+            Log.e("LinguaLinkApp", "Failed to create notification channels", e)
+        }
     }
 
     private fun createNotificationChannels() {
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+
         val serviceChannel = NotificationChannel(
             CHANNEL_SERVICE,
             "翻译服务",
@@ -31,7 +37,6 @@ class LinguaLinkApp : Application() {
             description = "应用更新通知"
         }
 
-        val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(serviceChannel)
         nm.createNotificationChannel(updateChannel)
     }

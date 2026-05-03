@@ -42,6 +42,10 @@ android {
 
         buildConfigField("String", "VERSION_NAME", "\"$versionName\"")
         buildConfigField("String", "GITHUB_REPO", "\"${findProperty("GITHUB_REPO") ?: "OWNER/lingualink"}\"")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
