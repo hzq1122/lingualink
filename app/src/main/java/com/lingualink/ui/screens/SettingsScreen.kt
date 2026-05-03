@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,7 +115,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     Switch(checked = viewModel.checkUpdates, onCheckedChange = { viewModel.checkUpdates = it })
                 }
                 Button(onClick = { viewModel.checkForUpdate() }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.SystemUpdate, null, Modifier.size(18.dp))
+                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("检查更新")
                 }

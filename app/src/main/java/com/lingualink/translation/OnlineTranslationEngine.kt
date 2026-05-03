@@ -1,18 +1,20 @@
 package com.lingualink.translation
 
-import android.util.Log
 import com.lingualink.domain.model.TranslationMode
 import com.lingualink.domain.model.TranslationRequest
 import com.lingualink.domain.model.TranslationResult
-import io.ktor.client.*
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.http.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
-class OnlineTranslationEngine(
-    private val httpClient: HttpClient
-) : TranslationEngine {
+class OnlineTranslationEngine : TranslationEngine {
 
     override val mode = TranslationMode.ONLINE
 
@@ -20,15 +22,19 @@ class OnlineTranslationEngine(
     var apiKey: String = ""
     var selectedModel: String = "deepseek-chat"
 
-    override suspend fun translate(request: TranslationRequest): TranslationResult {
-        val targetLangName = SupportedLanguage.fromCode(request.targetLang)?.displayName
-            ?: request.targetLang
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        val startTime = System.currentTimeMillis()
-        val response = httpClient.post("$apiEndpoint/v1/chat/completions") {
-            header("Authorization", "Bearer $apiKey")
-            contentType(ContentType.Application.Json)
-            setBody(ChatRequest(
+    override suspend fun translate(request: TranslationRequest): TranslationResult =
+        withContext(Dispatchers.IO) {
+            val targetLangName = SupportedLanguage.fromCode(request.targetLang)?.displayName
+                ?: request.targetLang
+
+            val body = json.encodeToString(ChatRequest(
                 model = selectedModel,
                 messages = listOf(
                     ChatMsg("system", SYSTEM_PROMPT),
@@ -37,20 +43,34 @@ class OnlineTranslationEngine(
                 temperature = 0.3f,
                 max_tokens = 2048
             ))
-        }.body<ChatResponse>()
 
-        val latency = System.currentTimeMillis() - startTime
-        val translated = response.choices.firstOrNull()?.message?.content?.trim()
-            ?: throw Exception("Empty response from LLM")
+            val startTime = System.currentTimeMillis()
+            val httpRequest = Request.Builder()
+                .url("$apiEndpoint/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $apiKey")
+                .post(body.toRequestBody(JSON_TYPE))
+                .build()
 
-        return TranslationResult(
-            translatedText = translated,
-            sourceLang = request.sourceLang,
-            targetLang = request.targetLang,
-            latencyMs = latency,
-            mode = TranslationMode.ONLINE
-        )
-    }
+            val response = client.newCall(httpRequest).execute()
+            val latency = System.currentTimeMillis() - startTime
+
+            if (!response.isSuccessful) {
+                throw Exception("API error: ${response.code} ${response.message}")
+            }
+
+            val responseBody = response.body?.string() ?: throw Exception("Empty response")
+            val chatResponse = json.decodeFromString<ChatResponse>(responseBody)
+            val translated = chatResponse.choices.firstOrNull()?.message?.content?.trim()
+                ?: throw Exception("No translation in response")
+
+            TranslationResult(
+                translatedText = translated,
+                sourceLang = request.sourceLang,
+                targetLang = request.targetLang,
+                latencyMs = latency,
+                mode = TranslationMode.ONLINE
+            )
+        }
 
     override suspend fun detectLanguage(text: String): String = "auto"
 

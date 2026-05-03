@@ -2,7 +2,7 @@ package com.lingualink.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -42,7 +42,7 @@ fun LinguaLinkNavHost() {
                             Icon(
                                 when (screen) {
                                     Screen.Home -> Icons.Default.Home
-                                    Screen.History -> Icons.Default.History
+                                    Screen.History -> Icons.Default.DateRange
                                     Screen.Settings -> Icons.Default.Settings
                                 },
                                 contentDescription = screen.label

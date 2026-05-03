@@ -1,8 +1,6 @@
-# Ktor
--keep class io.ktor.** { *; }
--keepclassmembers class io.ktor.** { volatile <fields>; }
--keep class io.ktor.client.engine.** { *; }
--keep class io.ktor.serialization.** { *; }
+# OkHttp
+-dontwarn okhttp3.**
+-keep class okhttp3.** { *; }
 
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
@@ -17,7 +15,3 @@
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
 -dontwarn androidx.room.paging.**
-
-# ML Kit
--keep class com.google.mlkit.** { *; }
--dontwarn com.google.mlkit.**

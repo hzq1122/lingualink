@@ -8,8 +8,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,7 +52,7 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { viewModel.swapLanguages() }) {
-                        Icon(Icons.Default.SwapHoriz, "交换语言")
+                        Icon(Icons.Default.Refresh, "交换语言")
                     }
                     LanguageSelector(
                         selectedCode = state.targetLang,

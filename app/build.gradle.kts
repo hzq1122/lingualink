@@ -6,7 +6,6 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
-// Version from git tag
 val gitTag = System.getenv("GIT_TAG") ?: run {
     try {
         val process = ProcessBuilder("git", "describe", "--tags", "--always")
@@ -19,7 +18,6 @@ val gitTag = System.getenv("GIT_TAG") ?: run {
     }
 }
 
-// Parse version: v1.2.3 -> versionName=1.2.3, versionCode=10203
 val versionName = gitTag.removePrefix("v")
 val versionParts = versionName.split(".", "-").take(3)
 val versionCode = try {
@@ -39,10 +37,8 @@ android {
         targetSdk = 35
         versionCode = versionCode
         versionName = versionName
-
         buildConfigField("String", "VERSION_NAME", "\"$versionName\"")
-        buildConfigField("String", "GITHUB_REPO", "\"${findProperty("GITHUB_REPO") ?: "OWNER/lingualink"}\"")
-
+        buildConfigField("String", "GITHUB_REPO", "\"${findProperty("GITHUB_REPO") ?: ""}\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
@@ -51,10 +47,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
             isMinifyEnabled = false
@@ -78,55 +71,34 @@ android {
 }
 
 dependencies {
-    // Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-core")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Core
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
-    // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")
     ksp("com.google.dagger:hilt-android-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Ktor (CIO engine for Android)
-    implementation("io.ktor:ktor-server-core:2.3.12")
-    implementation("io.ktor:ktor-server-cio:2.3.12")
-    implementation("io.ktor:ktor-server-content-negotiation:2.3.12")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
-    implementation("io.ktor:ktor-client-core:2.3.12")
-    implementation("io.ktor:ktor-client-okhttp:2.3.12")
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
+    // OkHttp only - no Ktor
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Kotlin Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-
-    // ML Kit Translation
-    implementation("com.google.mlkit:translate:17.0.3")
-    implementation("com.google.mlkit:language-id:17.0.6")
-
-    // OkHttp
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    // WorkManager (for background update checks)
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 }
