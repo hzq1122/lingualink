@@ -72,6 +72,26 @@ class OnlineTranslationEngine : TranslationEngine {
             )
         }
 
+    suspend fun fetchModels(): List<String> = withContext(Dispatchers.IO) {
+        if (apiEndpoint.isBlank() || apiKey.isBlank()) {
+            throw Exception("请先填写 API 端点和 Key")
+        }
+        val httpRequest = Request.Builder()
+            .url("$apiEndpoint/v1/models")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .get()
+            .build()
+
+        val response = client.newCall(httpRequest).execute()
+        if (!response.isSuccessful) {
+            throw Exception("获取模型列表失败: ${response.code}")
+        }
+
+        val body = response.body?.string() ?: throw Exception("Empty response")
+        val modelsResponse = json.decodeFromString<ModelsResponse>(body)
+        modelsResponse.data.map { it.id }.sorted()
+    }
+
     override suspend fun detectLanguage(text: String): String = "auto"
 
     override fun isAvailable(): Boolean =
@@ -102,3 +122,9 @@ private data class ChatResponse(val choices: List<Choice>)
 
 @Serializable
 private data class Choice(val message: ChatMsg)
+
+@Serializable
+private data class ModelsResponse(val data: List<ModelItem>)
+
+@Serializable
+private data class ModelItem(val id: String)

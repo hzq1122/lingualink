@@ -5,6 +5,8 @@ import android.provider.Settings
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lingualink.data.db.dao.TranslationDao
+import com.lingualink.data.db.entity.TranslationEntity
 import com.lingualink.domain.model.DeviceInfo
 import com.lingualink.domain.model.TranslationMode
 import com.lingualink.domain.model.TranslationRequest
@@ -33,6 +35,7 @@ data class ChatMessage(
     val sourceLang: String = "",
     val targetLang: String = "",
     val mode: TranslationMode? = null,
+    val isTranslating: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -52,7 +55,8 @@ class HomeViewModel @Inject constructor(
     application: Application,
     private val deviceClient: DeviceHttpClient,
     private val onlineEngine: OnlineTranslationEngine,
-    private val offlineEngine: OfflineTranslationEngine
+    private val offlineEngine: OfflineTranslationEngine,
+    private val translationDao: TranslationDao
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -97,7 +101,8 @@ class HomeViewModel @Inject constructor(
     }
 
     fun startScan() {
-        _uiState.value = _uiState.value.copy(isScanning = true)
+        if (_uiState.value.isScanning) return
+        _uiState.value = _uiState.value.copy(isScanning = true, discoveredDevices = emptyList())
         val discovery = MulticastDiscovery(
             deviceClient = deviceClient,
             scope = viewModelScope
@@ -107,7 +112,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             discovery.discovered.collect { device ->
                 val current = _uiState.value.discoveredDevices.toMutableList()
-                if (current.none { it.fingerprint == device.fingerprint }) {
+                if (current.none { it.fingerprint == device.fingerprint }
+                    && device.fingerprint != fingerprint) {
                     current.add(device)
                     _uiState.value = _uiState.value.copy(discoveredDevices = current)
                 }
@@ -121,6 +127,31 @@ class HomeViewModel @Inject constructor(
             kotlinx.coroutines.delay(5000)
             _uiState.value = _uiState.value.copy(isScanning = false)
         }
+    }
+
+    fun connectDevice(device: DeviceInfo) {
+        val state = _uiState.value
+        if (state.connectedDevices.any { it.fingerprint == device.fingerprint }) return
+        val updatedConnected = state.connectedDevices + device
+        val updatedDiscovered = state.discoveredDevices.filter { it.fingerprint != device.fingerprint }
+        _uiState.value = state.copy(
+            connectedDevices = updatedConnected,
+            discoveredDevices = updatedDiscovered
+        )
+    }
+
+    fun disconnectDevice(device: DeviceInfo) {
+        val state = _uiState.value
+        val updatedConnected = state.connectedDevices.filter { it.fingerprint != device.fingerprint }
+        val updatedDiscovered = state.discoveredDevices + device
+        _uiState.value = state.copy(
+            connectedDevices = updatedConnected,
+            discoveredDevices = updatedDiscovered
+        )
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 
     fun setSourceLang(lang: String) {
@@ -146,21 +177,24 @@ class HomeViewModel @Inject constructor(
             senderId = fingerprint,
             isLocal = true,
             sourceLang = state.sourceLang,
-            targetLang = state.targetLang
+            targetLang = state.targetLang,
+            isTranslating = true
         )
         _uiState.value = state.copy(messages = state.messages + localMsg)
 
         viewModelScope.launch {
             try {
-                val engine = if (onlineEngine.isAvailable()) onlineEngine else offlineEngine
+                val engine = selectEngine()
                 val result = engine.translate(
                     TranslationRequest(text, state.sourceLang, state.targetLang)
                 )
                 val updatedMsg = localMsg.copy(
                     translatedText = result.translatedText,
-                    mode = result.mode
+                    mode = result.mode,
+                    isTranslating = false
                 )
                 updateMessage(updatedMsg)
+                saveTranslation(updatedMsg, result.latencyMs)
 
                 val resultDto = TranslateResultDto(
                     requestId = localMsg.id,
@@ -177,14 +211,46 @@ class HomeViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "Translation failed", e)
-                _uiState.value = _uiState.value.copy(errorMessage = "翻译失败: ${e.message}")
+                updateMessage(localMsg.copy(isTranslating = false))
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "翻译失败: ${e.message}"
+                )
             }
+        }
+    }
+
+    private fun selectEngine() = when {
+        onlineEngine.isAvailable() -> onlineEngine
+        offlineEngine.isAvailable() -> offlineEngine
+        else -> throw UnsupportedOperationException("请在设置中配置 API，或使用支持离线的语言对（中↔英、英↔日）")
+    }
+
+    private suspend fun saveTranslation(msg: ChatMessage, latencyMs: Long) {
+        try {
+            translationDao.insert(
+                TranslationEntity(
+                    requestId = msg.id,
+                    sessionId = "",
+                    senderDeviceId = msg.senderId,
+                    senderAlias = msg.senderAlias,
+                    originalText = msg.text,
+                    translatedText = msg.translatedText ?: "",
+                    sourceLang = msg.sourceLang,
+                    targetLang = msg.targetLang,
+                    direction = if (msg.isLocal) "local" else "remote",
+                    translationMode = msg.mode?.name?.lowercase() ?: "unknown",
+                    latencyMs = latencyMs,
+                    createdAt = msg.timestamp
+                )
+            )
+        } catch (e: Exception) {
+            Log.e("HomeViewModel", "Failed to save translation", e)
         }
     }
 
     private suspend fun handleIncomingRequest(request: TranslateRequestDto) {
         try {
-            val engine = if (onlineEngine.isAvailable()) onlineEngine else offlineEngine
+            val engine = selectEngine()
             val result = engine.translate(
                 TranslationRequest(request.text, request.sourceLang, request.targetLang)
             )
@@ -200,6 +266,7 @@ class HomeViewModel @Inject constructor(
                 mode = result.mode
             )
             _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+            saveTranslation(msg, result.latencyMs)
         } catch (e: Exception) {
             Log.e("HomeViewModel", "Handle incoming request failed", e)
         }
@@ -216,7 +283,7 @@ class HomeViewModel @Inject constructor(
                 isLocal = false,
                 sourceLang = result.sourceLang,
                 targetLang = result.targetLang,
-                mode = TranslationMode.valueOf(result.translationMode.uppercase())
+                mode = try { TranslationMode.valueOf(result.translationMode.uppercase()) } catch (_: Exception) { null }
             )
             _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
         } catch (e: Exception) {

@@ -6,26 +6,26 @@ enum class SupportedLanguage(
     val localName: String,
     val offlineSupported: Boolean
 ) {
-    AUTO("auto", "自动检测", "Auto", true),
+    AUTO("auto", "自动检测", "Auto", false),
     ZH("zh", "中文", "中文", true),
     EN("en", "English", "English", true),
     JA("ja", "日本語", "日本語", true),
-    KO("ko", "한국어", "한국어", true),
-    FR("fr", "法语", "Français", true),
-    DE("de", "德语", "Deutsch", true),
-    ES("es", "西班牙语", "Español", true),
-    RU("ru", "俄语", "Русский", true),
-    PT("pt", "葡萄牙语", "Português", true),
-    IT("it", "意大利语", "Italiano", true),
-    AR("ar", "阿拉伯语", "العربية", true),
-    TH("th", "泰语", "ไทย", true),
-    VI("vi", "越南语", "Tiếng Việt", true),
-    NL("nl", "荷兰语", "Nederlands", true),
-    PL("pl", "波兰语", "Polski", true),
-    TR("tr", "土耳其语", "Türkçe", true),
-    ID("id", "印尼语", "Indonesia", true),
-    UK("uk", "乌克兰语", "Українська", true),
-    HI("hi", "印地语", "हिन्दी", true);
+    KO("ko", "한국어", "한국어", false),
+    FR("fr", "法语", "Français", false),
+    DE("de", "德语", "Deutsch", false),
+    ES("es", "西班牙语", "Español", false),
+    RU("ru", "俄语", "Русский", false),
+    PT("pt", "葡萄牙语", "Português", false),
+    IT("it", "意大利语", "Italiano", false),
+    AR("ar", "阿拉伯语", "العربية", false),
+    TH("th", "泰语", "ไทย", false),
+    VI("vi", "越南语", "Tiếng Việt", false),
+    NL("nl", "荷兰语", "Nederlands", false),
+    PL("pl", "波兰语", "Polski", false),
+    TR("tr", "土耳其语", "Türkçe", false),
+    ID("id", "印尼语", "Indonesia", false),
+    UK("uk", "乌克兰语", "Українська", false),
+    HI("hi", "印地语", "हिन्दी", false);
 
     companion object {
         private val codeMap = entries.associateBy { it.code }

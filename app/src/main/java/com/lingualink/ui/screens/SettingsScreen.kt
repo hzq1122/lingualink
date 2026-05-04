@@ -3,14 +3,18 @@ package com.lingualink.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,11 +38,30 @@ class SettingsViewModel @Inject constructor(
     var apiKey by mutableStateOf(onlineEngine.apiKey)
     var selectedModel by mutableStateOf(onlineEngine.selectedModel)
     var checkUpdates by mutableStateOf(true)
+    var availableModels by mutableStateOf<List<String>>(emptyList())
+    var isLoadingModels by mutableStateOf(false)
+    var modelError by mutableStateOf<String?>(null)
 
     fun saveApiSettings() {
         onlineEngine.apiEndpoint = apiEndpoint
         onlineEngine.apiKey = apiKey
         onlineEngine.selectedModel = selectedModel
+    }
+
+    fun fetchModels() {
+        // Save current settings first so fetch uses the latest values
+        saveApiSettings()
+        isLoadingModels = true
+        modelError = null
+        viewModelScope.launch {
+            try {
+                availableModels = onlineEngine.fetchModels()
+            } catch (e: Exception) {
+                modelError = e.message
+            } finally {
+                isLoadingModels = false
+            }
+        }
     }
 
     fun checkForUpdate() {
@@ -50,13 +73,15 @@ class SettingsViewModel @Inject constructor(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val updateState by viewModel.updateManager.updateState.collectAsState()
     var showUpdateDialog by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showApiKey by remember { mutableStateOf(false) }
+    var modelExpanded by remember { mutableStateOf(false) }
 
-    // Auto-check on first composition
     LaunchedEffect(Unit) {
         if (viewModel.checkUpdates) viewModel.checkForUpdate()
     }
@@ -68,7 +93,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         Text("设置", style = MaterialTheme.typography.headlineMedium)
 
         // API Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("翻译 API 配置", style = MaterialTheme.typography.titleMedium)
 
@@ -78,35 +103,93 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     label = { Text("API 端点") },
                     placeholder = { Text("https://api.deepseek.com") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Language, null) }
                 )
                 OutlinedTextField(
                     value = viewModel.apiKey,
                     onValueChange = { viewModel.apiKey = it },
                     label = { Text("API Key") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    leadingIcon = { Icon(Icons.Default.Key, null) },
+                    trailingIcon = {
+                        IconButton(onClick = { showApiKey = !showApiKey }) {
+                            Icon(
+                                if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (showApiKey) "隐藏" else "显示"
+                            )
+                        }
+                    }
                 )
-                OutlinedTextField(
-                    value = viewModel.selectedModel,
-                    onValueChange = { viewModel.selectedModel = it },
-                    label = { Text("模型") },
-                    placeholder = { Text("deepseek-chat") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+
+                // Model selector with fetch button
+                Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                    ExposedDropdownMenuBox(
+                        expanded = modelExpanded && viewModel.availableModels.isNotEmpty(),
+                        onExpandedChange = {
+                            if (viewModel.availableModels.isNotEmpty()) modelExpanded = !modelExpanded
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = viewModel.selectedModel,
+                            onValueChange = { viewModel.selectedModel = it },
+                            label = { Text("模型") },
+                            placeholder = { Text("deepseek-chat") },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.SmartToy, null) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelExpanded) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = modelExpanded,
+                            onDismissRequest = { modelExpanded = false }
+                        ) {
+                            viewModel.availableModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model, fontSize = 14.sp) },
+                                    onClick = {
+                                        viewModel.selectedModel = model
+                                        modelExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    FilledTonalButton(
+                        onClick = { viewModel.fetchModels() },
+                        enabled = !viewModel.isLoadingModels,
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        if (viewModel.isLoadingModels) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.CloudDownload, null, Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text("获取", fontSize = 13.sp)
+                    }
+                }
+                viewModel.modelError?.let { err ->
+                    Text(err, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                }
+
                 Button(
                     onClick = {
                         viewModel.saveApiSettings()
                         Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("保存") }
+                ) { Text("保存配置") }
             }
         }
 
         // Update
-        Card(modifier = Modifier.fillMaxWidth()) {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("应用更新", style = MaterialTheme.typography.titleMedium)
                 Text("当前版本: v${viewModel.updateManager.currentVersion}")
@@ -114,7 +197,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                     Text("启动时检查更新", modifier = Modifier.weight(1f))
                     Switch(checked = viewModel.checkUpdates, onCheckedChange = { viewModel.checkUpdates = it })
                 }
-                Button(onClick = { viewModel.checkForUpdate() }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { viewModel.checkForUpdate() }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("检查更新")
@@ -132,12 +215,22 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         }
 
         // About
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("关于", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
                 Text("LinguaLink - 多设备联机翻译")
-                Text("v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "v${BuildConfig.VERSION_NAME}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "使用 Xiaomi MiMo V2.5 Pro 开发",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

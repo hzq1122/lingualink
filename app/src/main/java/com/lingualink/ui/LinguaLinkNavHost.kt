@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -25,7 +26,6 @@ sealed class Screen(val route: String, val label: String) {
     data object Settings : Screen("settings", "设置")
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LinguaLinkNavHost() {
     val navController = rememberNavController()
@@ -33,7 +33,7 @@ fun LinguaLinkNavHost() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(tonalElevation = 2.dp) {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
                 items.forEach { screen ->
