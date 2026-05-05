@@ -9,9 +9,14 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -32,6 +37,7 @@ class UpdateManager(private val context: Context) {
     val updateState: StateFlow<UpdateState> = _updateState
 
     private var downloadId: Long = -1
+    private var downloadScope: CoroutineScope? = null
 
     val currentVersion: String
         get() = try {
@@ -109,7 +115,7 @@ class UpdateManager(private val context: Context) {
             override fun onReceive(ctx: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
                 if (id == downloadId) {
-                    context.unregisterReceiver(this)
+                    try { ctx.unregisterReceiver(this) } catch (_: Exception) {}
                     installApk(file)
                 }
             }
@@ -121,10 +127,12 @@ class UpdateManager(private val context: Context) {
             context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
         }
 
-        // Poll progress
-        Thread {
+        // Poll progress using coroutine
+        val scope = CoroutineScope(Job() + Dispatchers.IO)
+        downloadScope = scope
+        scope.launch {
             var downloading = true
-            while (downloading) {
+            while (isActive && downloading) {
                 val query = DownloadManager.Query().setFilterById(downloadId)
                 val cursor = dm.query(query)
                 if (cursor != null && cursor.moveToFirst()) {
@@ -140,12 +148,14 @@ class UpdateManager(private val context: Context) {
                         if (status == DownloadManager.STATUS_FAILED) {
                             _updateState.value = UpdateState.Error("下载失败")
                         }
+                        try { context.unregisterReceiver(receiver) } catch (_: Exception) {}
                     }
                 }
                 cursor?.close()
-                Thread.sleep(500)
+                delay(500)
             }
-        }.start()
+            downloadScope = null
+        }
     }
 
     private fun installApk(file: File) {
@@ -164,17 +174,8 @@ class UpdateManager(private val context: Context) {
         context.startActivity(intent)
     }
 
-    private fun isNewerVersion(current: String, latest: String): Boolean {
-        val c = current.split(".", "-").mapNotNull { it.toIntOrNull() }
-        val l = latest.split(".", "-").mapNotNull { it.toIntOrNull() }
-        for (i in 0 until maxOf(c.size, l.size)) {
-            val cv = c.getOrElse(i) { 0 }
-            val lv = l.getOrElse(i) { 0 }
-            if (lv > cv) return true
-            if (lv < cv) return false
-        }
-        return false
-    }
+    private fun isNewerVersion(current: String, latest: String): Boolean =
+        VersionUtils.isNewerVersion(current, latest)
 }
 
 data class UpdateInfo(

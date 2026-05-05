@@ -22,31 +22,56 @@ class MulticastDiscovery(
 ) {
     companion object {
         const val MULTICAST_GROUP = "224.0.0.167"
-        val ANNOUNCE_DELAYS = listOf(100L, 500L, 2000L)
+        val ANNOUNCE_DELAYS = listOf(0L, 200L, 1000L)
     }
 
     private val json = Json { ignoreUnknownKeys = true }
     private val _discovered = MutableSharedFlow<DeviceInfo>(extraBufferCapacity = 16)
     val discovered: SharedFlow<DeviceInfo> = _discovered
     private var listenJob: Job? = null
+    private val seenFingerprints = mutableSetOf<String>()
+    private val answeredAnnouncements = mutableSetOf<String>()
 
     fun startListener(fingerprint: String, getSelfDto: () -> MulticastDto) {
         listenJob = scope.launch(Dispatchers.IO) {
+            var socket: MulticastSocket? = null
             try {
-                val socket = MulticastSocket(port).apply {
+                socket = MulticastSocket(port).apply {
                     joinGroup(InetAddress.getByName(MULTICAST_GROUP))
+                    soTimeout = 3000
                 }
                 val buffer = ByteArray(4096)
+                val group = InetAddress.getByName(MULTICAST_GROUP)
                 Log.i("Multicast", "Listening on port $port")
 
                 while (isActive) {
                     val packet = DatagramPacket(buffer, buffer.size)
-                    socket.receive(packet)
+                    try {
+                        socket.receive(packet)
+                    } catch (_: java.net.SocketTimeoutException) {
+                        continue
+                    }
                     try {
                         val dto = json.decodeFromString<MulticastDto>(
                             String(packet.data, 0, packet.length)
                         )
                         if (dto.fingerprint == fingerprint) continue
+                        if (dto.fingerprint in seenFingerprints) {
+                            if (dto.announcement && dto.fingerprint !in answeredAnnouncements) {
+                                answeredAnnouncements.add(dto.fingerprint)
+                                answerAnnouncement(
+                                    DeviceInfo(
+                                        ip = packet.address.hostAddress ?: continue,
+                                        alias = dto.alias,
+                                        deviceModel = dto.deviceModel,
+                                        fingerprint = dto.fingerprint,
+                                        port = dto.port
+                                    ), getSelfDto
+                                )
+                            }
+                            continue
+                        }
+                        seenFingerprints.add(dto.fingerprint)
 
                         val device = DeviceInfo(
                             ip = packet.address.hostAddress ?: continue,
@@ -57,15 +82,21 @@ class MulticastDiscovery(
                         )
                         _discovered.emit(device)
 
-                        if (dto.announcement) {
+                        if (dto.announcement && dto.fingerprint !in answeredAnnouncements) {
+                            answeredAnnouncements.add(dto.fingerprint)
                             answerAnnouncement(device, getSelfDto)
                         }
                     } catch (e: Exception) {
                         Log.w("Multicast", "Parse error: ${e.message}")
                     }
                 }
+                // Leave multicast group and close socket
+                try { socket.leaveGroup(group) } catch (_: Exception) {}
+                try { socket.close() } catch (_: Exception) {}
             } catch (e: Exception) {
                 Log.e("Multicast", "Listener error: ${e.message}")
+                try { socket?.leaveGroup(InetAddress.getByName(MULTICAST_GROUP)) } catch (_: Exception) {}
+                try { socket?.close() } catch (_: Exception) {}
             }
         }
     }
@@ -113,5 +144,7 @@ class MulticastDiscovery(
     fun stop() {
         listenJob?.cancel()
         listenJob = null
+        seenFingerprints.clear()
+        answeredAnnouncements.clear()
     }
 }

@@ -1,9 +1,11 @@
 package com.lingualink.translation
 
+import com.lingualink.data.datastore.SettingsDataStore
 import com.lingualink.domain.model.TranslationMode
 import com.lingualink.domain.model.TranslationRequest
 import com.lingualink.domain.model.TranslationResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -14,7 +16,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-class OnlineTranslationEngine : TranslationEngine {
+class OnlineTranslationEngine(
+    private val settingsDataStore: SettingsDataStore? = null
+) : TranslationEngine {
 
     override val mode = TranslationMode.ONLINE
 
@@ -28,6 +32,18 @@ class OnlineTranslationEngine : TranslationEngine {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
+
+    suspend fun loadSettings() {
+        settingsDataStore?.let { store ->
+            apiEndpoint = store.getApiEndpoint()
+            apiKey = store.getApiKey()
+            selectedModel = store.getSelectedModel()
+        }
+    }
+
+    suspend fun saveSettings() {
+        settingsDataStore?.saveApiSettings(apiEndpoint, apiKey, selectedModel)
+    }
 
     override suspend fun translate(request: TranslationRequest): TranslationResult =
         withContext(Dispatchers.IO) {

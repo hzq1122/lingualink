@@ -5,8 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,7 +19,11 @@ import androidx.lifecycle.viewModelScope
 import com.lingualink.data.db.dao.TranslationDao
 import com.lingualink.data.db.entity.TranslationEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -31,8 +34,31 @@ import javax.inject.Inject
 class HistoryViewModel @Inject constructor(
     private val dao: TranslationDao
 ) : ViewModel() {
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
     val history = dao.getRecent(200)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _searchResults = MutableStateFlow<List<TranslationEntity>>(emptyList())
+    val searchResults: StateFlow<List<TranslationEntity>> = _searchResults
+
+    private var searchJob: Job? = null
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            searchJob?.cancel()
+        } else {
+            searchJob?.cancel()
+            searchJob = viewModelScope.launch {
+                delay(300)
+                val escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                _searchResults.value = dao.search(escaped)
+            }
+        }
+    }
 
     fun clearAll() {
         viewModelScope.launch { dao.deleteAll() }
@@ -43,12 +69,23 @@ class HistoryViewModel @Inject constructor(
 @Composable
 fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
     val history by viewModel.history.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
     var showClearDialog by remember { mutableStateOf(false) }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    val displayItems = if (searchQuery.isBlank()) history else searchResults
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("翻译历史") },
             actions = {
+                IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                    Icon(
+                        if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                        contentDescription = "搜索"
+                    )
+                }
                 if (history.isNotEmpty()) {
                     IconButton(onClick = { showClearDialog = true }) {
                         Icon(Icons.Default.DeleteSweep, "清空历史")
@@ -57,7 +94,26 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
             }
         )
 
-        if (history.isEmpty()) {
+        if (isSearchActive) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { viewModel.setSearchQuery(it) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                placeholder = { Text("搜索翻译记录...") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                            Icon(Icons.Default.Clear, "清除")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
+        if (displayItems.isEmpty()) {
             EmptyHistoryState(modifier = Modifier.weight(1f))
         } else {
             LazyColumn(
@@ -65,7 +121,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(history, key = { it.id }) { item ->
+                items(displayItems, key = { it.id }) { item ->
                     HistoryItem(item)
                 }
             }
@@ -114,7 +170,7 @@ private fun HistoryItem(item: TranslationEntity) {
                             onClick = {},
                             label = { Text("离线", fontSize = 10.sp) },
                             modifier = Modifier.height(24.dp)
-                    )
+                        )
                     }
                     Text(
                         dateFormat.format(Date(item.createdAt)),

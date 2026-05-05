@@ -45,10 +45,20 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(findProperty("RELEASE_STORE_FILE") as? String ?: "shuangyue.keystore")
+            storePassword = findProperty("RELEASE_STORE_PASSWORD") as? String ?: System.getenv("RELEASE_STORE_PASSWORD") ?: ""
+            keyAlias = findProperty("RELEASE_KEY_ALIAS") as? String ?: System.getenv("RELEASE_KEY_ALIAS") ?: ""
+            keyPassword = findProperty("RELEASE_KEY_PASSWORD") as? String ?: System.getenv("RELEASE_KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
@@ -103,4 +113,8 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.json:json:20240303")
 }

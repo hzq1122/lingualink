@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lingualink.data.db.dao.TranslationDao
 import com.lingualink.data.db.entity.TranslationEntity
+import com.lingualink.domain.model.ConnectionStatus
 import com.lingualink.domain.model.DeviceInfo
 import com.lingualink.domain.model.TranslationMode
 import com.lingualink.domain.model.TranslationRequest
@@ -39,10 +40,15 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class DeviceConnection(
+    val device: DeviceInfo,
+    val status: ConnectionStatus = ConnectionStatus.CONNECTING
+)
+
 data class HomeUiState(
     val messages: List<ChatMessage> = emptyList(),
     val discoveredDevices: List<DeviceInfo> = emptyList(),
-    val connectedDevices: List<DeviceInfo> = emptyList(),
+    val connectedDevices: List<DeviceConnection> = emptyList(),
     val isScanning: Boolean = false,
     val isServerRunning: Boolean = false,
     val sourceLang: String = "zh",
@@ -69,17 +75,28 @@ class HomeViewModel @Inject constructor(
         UUID.randomUUID().toString()
     }
 
-    private val deviceAlias: String = android.os.Build.MODEL ?: "Android"
+    private val deviceAlias: String = run {
+        try {
+            android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.name?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+    } ?: android.os.Build.MODEL ?: "Android"
 
     private var httpServer: FanyiHttpServer? = null
     private var multicastDiscovery: MulticastDiscovery? = null
 
     init {
+        viewModelScope.launch {
+            try {
+                onlineEngine.loadSettings()
+            } catch (e: Exception) {
+                Log.w("HomeViewModel", "Failed to load settings", e)
+            }
+        }
         try {
             startServer()
         } catch (e: Exception) {
             Log.e("HomeViewModel", "Failed to start server", e)
-            _uiState.value = _uiState.value.copy(errorMessage = "服务启动失败: ${e.message}")
+            _uiState.update { it.copy(errorMessage = "服务启动失败: ${e.message}") }
         }
     }
 
@@ -97,12 +114,12 @@ class HomeViewModel @Inject constructor(
         server.onTranslateResult = { result -> handleIncomingResult(result) }
         server.start()
         httpServer = server
-        _uiState.value = _uiState.value.copy(isServerRunning = true)
+        _uiState.update { it.copy(isServerRunning = true) }
     }
 
     fun startScan() {
         if (_uiState.value.isScanning) return
-        _uiState.value = _uiState.value.copy(isScanning = true, discoveredDevices = emptyList())
+        _uiState.update { it.copy(isScanning = true, discoveredDevices = emptyList()) }
         val discovery = MulticastDiscovery(
             deviceClient = deviceClient,
             scope = viewModelScope
@@ -125,52 +142,71 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             kotlinx.coroutines.delay(5000)
-            _uiState.value = _uiState.value.copy(isScanning = false)
+            _uiState.update { it.copy(isScanning = false) }
         }
     }
 
     fun connectDevice(device: DeviceInfo) {
-        val state = _uiState.value
-        if (state.connectedDevices.any { it.fingerprint == device.fingerprint }) return
-        val updatedConnected = state.connectedDevices + device
-        val updatedDiscovered = state.discoveredDevices.filter { it.fingerprint != device.fingerprint }
-        _uiState.value = state.copy(
-            connectedDevices = updatedConnected,
-            discoveredDevices = updatedDiscovered
-        )
+        if (_uiState.value.connectedDevices.any { it.device.fingerprint == device.fingerprint }) return
+
+        val conn = DeviceConnection(device, ConnectionStatus.CONNECTING)
+        _uiState.update { state ->
+            state.copy(
+                connectedDevices = state.connectedDevices + conn,
+                discoveredDevices = state.discoveredDevices.filter { it.fingerprint != device.fingerprint }
+            )
+        }
+
+        viewModelScope.launch {
+            val reachable = deviceClient.ping(device)
+            _uiState.update { current ->
+                val updated = current.connectedDevices.map {
+                    if (it.device.fingerprint == device.fingerprint)
+                        it.copy(status = if (reachable) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED)
+                    else it
+                }
+                val errorMsg = if (!reachable) "无法连接到 ${device.alias}" else null
+                current.copy(connectedDevices = updated, errorMessage = errorMsg)
+            }
+            val failedDevices = _uiState.value.connectedDevices.filter { it.status == ConnectionStatus.DISCONNECTED }
+            failedDevices.forEach { disconnectDevice(it.device) }
+        }
     }
 
     fun disconnectDevice(device: DeviceInfo) {
-        val state = _uiState.value
-        val updatedConnected = state.connectedDevices.filter { it.fingerprint != device.fingerprint }
-        val updatedDiscovered = state.discoveredDevices + device
-        _uiState.value = state.copy(
-            connectedDevices = updatedConnected,
-            discoveredDevices = updatedDiscovered
-        )
+        _uiState.update { state ->
+            val updatedConnected = state.connectedDevices.filter { it.device.fingerprint != device.fingerprint }
+            val alreadyDiscovered = state.discoveredDevices.any { it.fingerprint == device.fingerprint }
+            val updatedDiscovered = if (alreadyDiscovered) state.discoveredDevices
+                else state.discoveredDevices + device
+            state.copy(
+                connectedDevices = updatedConnected,
+                discoveredDevices = updatedDiscovered
+            )
+        }
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(errorMessage = null)
+        _uiState.update { it.copy(errorMessage = null) }
     }
 
     fun setSourceLang(lang: String) {
-        _uiState.value = _uiState.value.copy(sourceLang = lang)
+        _uiState.update { it.copy(sourceLang = lang) }
     }
 
     fun setTargetLang(lang: String) {
-        _uiState.value = _uiState.value.copy(targetLang = lang)
+        _uiState.update { it.copy(targetLang = lang) }
     }
 
     fun swapLanguages() {
-        val state = _uiState.value
-        _uiState.value = state.copy(sourceLang = state.targetLang, targetLang = state.sourceLang)
+        _uiState.update { it.copy(sourceLang = it.targetLang, targetLang = it.sourceLang) }
     }
 
     fun sendTranslation(text: String) {
         if (text.isBlank()) return
-        val state = _uiState.value
 
+        // Snapshot language values for consistency
+        val state = _uiState.value
         val localMsg = ChatMessage(
             text = text,
             senderAlias = deviceAlias,
@@ -180,7 +216,7 @@ class HomeViewModel @Inject constructor(
             targetLang = state.targetLang,
             isTranslating = true
         )
-        _uiState.value = state.copy(messages = state.messages + localMsg)
+        _uiState.update { it.copy(messages = it.messages + localMsg) }
 
         viewModelScope.launch {
             try {
@@ -199,6 +235,7 @@ class HomeViewModel @Inject constructor(
                 val resultDto = TranslateResultDto(
                     requestId = localMsg.id,
                     senderId = fingerprint,
+                    senderAlias = deviceAlias,
                     originalText = text,
                     translatedText = result.translatedText,
                     sourceLang = state.sourceLang,
@@ -206,15 +243,13 @@ class HomeViewModel @Inject constructor(
                     latencyMs = result.latencyMs,
                     translationMode = result.mode.name.lowercase()
                 )
-                _uiState.value.connectedDevices.forEach { device ->
-                    deviceClient.sendTranslationResult(device, resultDto)
+                _uiState.value.connectedDevices.forEach { conn ->
+                    deviceClient.sendTranslationResult(conn.device, resultDto)
                 }
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "Translation failed", e)
                 updateMessage(localMsg.copy(isTranslating = false))
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = "翻译失败: ${e.message}"
-                )
+                _uiState.update { it.copy(errorMessage = "翻译失败: ${e.message}") }
             }
         }
     }
@@ -265,7 +300,7 @@ class HomeViewModel @Inject constructor(
                 targetLang = request.targetLang,
                 mode = result.mode
             )
-            _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+            _uiState.update { it.copy(messages = it.messages + msg) }
             saveTranslation(msg, result.latencyMs)
         } catch (e: Exception) {
             Log.e("HomeViewModel", "Handle incoming request failed", e)
@@ -274,29 +309,35 @@ class HomeViewModel @Inject constructor(
 
     private fun handleIncomingResult(result: TranslateResultDto) {
         try {
+            val currentState = _uiState.value
+            val senderName = result.senderAlias.ifBlank {
+                currentState.connectedDevices.firstOrNull { it.device.fingerprint == result.senderId }?.device?.alias
+                    ?: currentState.discoveredDevices.firstOrNull { it.fingerprint == result.senderId }?.alias
+                    ?: "Remote"
+            }
             val msg = ChatMessage(
                 id = result.requestId,
                 text = result.originalText,
                 translatedText = result.translatedText,
-                senderAlias = "Remote",
+                senderAlias = senderName,
                 senderId = result.senderId,
                 isLocal = false,
                 sourceLang = result.sourceLang,
                 targetLang = result.targetLang,
                 mode = try { TranslationMode.valueOf(result.translationMode.uppercase()) } catch (_: Exception) { null }
             )
-            _uiState.value = _uiState.value.copy(messages = _uiState.value.messages + msg)
+            _uiState.update { it.copy(messages = it.messages + msg) }
         } catch (e: Exception) {
             Log.e("HomeViewModel", "Handle incoming result failed", e)
         }
     }
 
     private fun updateMessage(msg: ChatMessage) {
-        val messages = _uiState.value.messages.toMutableList()
-        val idx = messages.indexOfFirst { it.id == msg.id }
-        if (idx >= 0) {
-            messages[idx] = msg
-            _uiState.value = _uiState.value.copy(messages = messages)
+        _uiState.update { state ->
+            val idx = state.messages.indexOfFirst { it.id == msg.id }
+            if (idx >= 0) {
+                state.copy(messages = state.messages.toMutableList().also { it[idx] = msg })
+            } else state
         }
     }
 

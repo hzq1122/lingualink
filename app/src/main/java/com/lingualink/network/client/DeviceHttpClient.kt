@@ -16,8 +16,8 @@ import java.util.concurrent.TimeUnit
 class DeviceHttpClient {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val client = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(1500, TimeUnit.MILLISECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
         .build()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 

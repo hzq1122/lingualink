@@ -36,6 +36,7 @@ data class TranslateRequestDto(
 data class TranslateResultDto(
     val requestId: String,
     val senderId: String,
+    val senderAlias: String = "",
     val originalText: String,
     val translatedText: String,
     val sourceLang: String,

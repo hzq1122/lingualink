@@ -2,6 +2,7 @@ package com.lingualink.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.lingualink.data.datastore.SettingsDataStore
 import com.lingualink.data.db.AppDatabase
 import com.lingualink.data.db.dao.TranslationDao
 import com.lingualink.network.client.DeviceHttpClient
@@ -35,7 +36,13 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideOnlineEngine(): OnlineTranslationEngine = OnlineTranslationEngine()
+    fun provideSettingsDataStore(@ApplicationContext context: Context): SettingsDataStore =
+        SettingsDataStore(context)
+
+    @Provides
+    @Singleton
+    fun provideOnlineEngine(settingsDataStore: SettingsDataStore): OnlineTranslationEngine =
+        OnlineTranslationEngine(settingsDataStore)
 
     @Provides
     @Singleton

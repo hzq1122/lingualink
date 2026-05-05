@@ -30,17 +30,23 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease \
             -PGIT_TAG=${{ github.ref_name }}
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
-      - name: Sign APK (debug key for now)
+      - name: Rename APK
         run: |
-          # Use debug keystore for initial builds
-          # Replace with proper signing later
-          cp app/build/outputs/apk/release/app-release-unsigned.apk \
-             app/build/outputs/apk/release/lingualink-${{ steps.version.outputs.VERSION }}.apk
+          find app/build/outputs/apk/release/ -name "*.apk" | while read f; do
+            mv "$f" "app/build/outputs/apk/release/lingualink-${{ steps.version.outputs.VERSION }}.apk"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -9,9 +9,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.io.OutputStream
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 
@@ -29,7 +29,8 @@ class FanyiHttpServer(
 
     fun start() {
         try {
-            serverSocket = ServerSocket(port)
+            val addr = InetAddress.getByName("0.0.0.0")
+            serverSocket = ServerSocket(port, 50, addr).apply { reuseAddress = true }
             running = true
             scope.launch(Dispatchers.IO) {
                 while (isActive && running) {
@@ -55,19 +56,22 @@ class FanyiHttpServer(
 
     private suspend fun handleConnection(socket: Socket) {
         try {
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
-            val requestLine = reader.readLine() ?: return
+            val input = socket.getInputStream()
+            val output = socket.getOutputStream()
+
+            // Read request line
+            val requestLine = readLine(input) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 2) return
 
             val method = parts[0]
             val path = parts[1]
 
-            // Read headers and body
+            // Read headers
             val headers = mutableMapOf<String, String>()
             var contentLength = 0
             while (true) {
-                val line = reader.readLine() ?: break
+                val line = readLine(input) ?: break
                 if (line.isEmpty()) break
                 val colonIdx = line.indexOf(':')
                 if (colonIdx > 0) {
@@ -80,22 +84,39 @@ class FanyiHttpServer(
 
             var body = ""
             if (contentLength > 0) {
-                val chars = CharArray(contentLength)
+                val bytes = ByteArray(contentLength)
                 var read = 0
                 while (read < contentLength) {
-                    val r = reader.read(chars, read, contentLength - read)
+                    val r = input.read(bytes, read, contentLength - read)
                     if (r == -1) break
                     read += r
                 }
-                body = String(chars, 0, read)
+                body = String(bytes, 0, read, Charsets.UTF_8)
             }
 
             val response = route(method, path, body)
-            sendResponse(socket.getOutputStream(), response)
+            sendResponse(output, response)
         } catch (e: Exception) {
             Log.w("HttpServer", "Connection error: ${e.message}")
         } finally {
             try { socket.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun readLine(input: InputStream): String? {
+        val sb = StringBuilder()
+        var prev = -1
+        while (true) {
+            val b = input.read()
+            if (b == -1) return if (sb.isEmpty()) null else sb.toString()
+            if (b == '\n'.code) {
+                // Handle \r\n
+                val len = if (prev == '\r'.code) sb.length - 1 else sb.length
+                if (len < 0) return ""
+                return sb.substring(0, len)
+            }
+            sb.append(b.toChar())
+            prev = b
         }
     }
 

@@ -10,7 +10,7 @@ enum class SupportedLanguage(
     ZH("zh", "中文", "中文", true),
     EN("en", "English", "English", true),
     JA("ja", "日本語", "日本語", true),
-    KO("ko", "한국어", "한국어", false),
+    KO("ko", "한국어", "한국어", true),
     FR("fr", "法语", "Français", false),
     DE("de", "德语", "Deutsch", false),
     ES("es", "西班牙语", "Español", false),

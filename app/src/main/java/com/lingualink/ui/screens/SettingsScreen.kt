@@ -21,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lingualink.BuildConfig
+import com.lingualink.data.datastore.SettingsDataStore
 import com.lingualink.translation.OnlineTranslationEngine
 import com.lingualink.update.UpdateInfo
 import com.lingualink.update.UpdateManager
@@ -32,24 +33,40 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val onlineEngine: OnlineTranslationEngine,
+    private val settingsDataStore: SettingsDataStore,
     val updateManager: UpdateManager
 ) : ViewModel() {
-    var apiEndpoint by mutableStateOf(onlineEngine.apiEndpoint)
-    var apiKey by mutableStateOf(onlineEngine.apiKey)
-    var selectedModel by mutableStateOf(onlineEngine.selectedModel)
+    var apiEndpoint by mutableStateOf("")
+    var apiKey by mutableStateOf("")
+    var selectedModel by mutableStateOf("deepseek-chat")
     var checkUpdates by mutableStateOf(true)
     var availableModels by mutableStateOf<List<String>>(emptyList())
     var isLoadingModels by mutableStateOf(false)
     var modelError by mutableStateOf<String?>(null)
 
+    init {
+        viewModelScope.launch {
+            apiEndpoint = settingsDataStore.getApiEndpoint()
+            apiKey = settingsDataStore.getApiKey()
+            selectedModel = settingsDataStore.getSelectedModel()
+            checkUpdates = settingsDataStore.getCheckUpdates()
+            // Also sync to engine
+            onlineEngine.apiEndpoint = apiEndpoint
+            onlineEngine.apiKey = apiKey
+            onlineEngine.selectedModel = selectedModel
+        }
+    }
+
     fun saveApiSettings() {
         onlineEngine.apiEndpoint = apiEndpoint
         onlineEngine.apiKey = apiKey
         onlineEngine.selectedModel = selectedModel
+        viewModelScope.launch {
+            onlineEngine.saveSettings()
+        }
     }
 
     fun fetchModels() {
-        // Save current settings first so fetch uses the latest values
         saveApiSettings()
         isLoadingModels = true
         modelError = null
@@ -69,6 +86,12 @@ class SettingsViewModel @Inject constructor(
         if (repo.isBlank() || repo == "OWNER/lingualink") return
         viewModelScope.launch {
             updateManager.checkForUpdate(repo)
+        }
+    }
+
+    fun persistCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setCheckUpdates(enabled)
         }
     }
 }
@@ -195,7 +218,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 Text("当前版本: v${viewModel.updateManager.currentVersion}")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("启动时检查更新", modifier = Modifier.weight(1f))
-                    Switch(checked = viewModel.checkUpdates, onCheckedChange = { viewModel.checkUpdates = it })
+                    Switch(checked = viewModel.checkUpdates, onCheckedChange = {
+                        viewModel.checkUpdates = it
+                        viewModel.persistCheckUpdates(it)
+                    })
                 }
                 OutlinedButton(onClick = { viewModel.checkForUpdate() }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))

@@ -1,6 +1,8 @@
 # OkHttp
 -dontwarn okhttp3.**
 -keep class okhttp3.** { *; }
+-dontwarn okio.**
+-keep class okio.** { *; }
 
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
@@ -15,3 +17,21 @@
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
 -dontwarn androidx.room.paging.**
+
+# DataStore
+-keep class androidx.datastore.** { *; }
+-dontwarn androidx.datastore.**
+
+# Hilt
+-dontwarn dagger.hilt.**
+-keep class dagger.hilt.** { *; }
+-keep class javax.inject.** { *; }
+-keep class * extends dagger.hilt.android.lifecycle.HiltViewModel
+
+# Coroutines
+-dontwarn kotlinx.coroutines.**
+
+# Keep serializable data classes for network DTOs
+-keep class com.lingualink.network.dto.** { *; }
+-keep class com.lingualink.update.GitHubRelease { *; }
+-keep class com.lingualink.update.GitHubAsset { *; }

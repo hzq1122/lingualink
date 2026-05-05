@@ -19,6 +19,8 @@ data class DeviceInfo(
 @Serializable
 enum class DeviceRole { HOST, GUEST }
 
+enum class ConnectionStatus { CONNECTING, CONNECTED, DISCONNECTED }
+
 @Serializable
 data class TranslationSession(
     val sessionId: String,

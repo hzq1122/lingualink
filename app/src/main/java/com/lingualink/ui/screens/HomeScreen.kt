@@ -25,10 +25,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.lingualink.domain.model.ConnectionStatus
 import com.lingualink.domain.model.DeviceInfo
 import com.lingualink.domain.model.TranslationMode
 import com.lingualink.ui.components.LanguageSelector
 import com.lingualink.ui.viewmodel.ChatMessage
+import com.lingualink.ui.viewmodel.DeviceConnection
 import com.lingualink.ui.viewmodel.HomeViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -164,12 +166,16 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
 @Composable
 private fun DeviceStatusBar(
     isServerRunning: Boolean,
-    connectedDevices: List<DeviceInfo>,
+    connectedDevices: List<DeviceConnection>,
     discoveredDevices: List<DeviceInfo>,
     isScanning: Boolean,
     onConnect: (DeviceInfo) -> Unit,
     onDisconnect: (DeviceInfo) -> Unit
 ) {
+    val connectedCount = connectedDevices.count { it.status == ConnectionStatus.CONNECTED }
+    val hasConnected = connectedCount > 0
+    val hasConnecting = connectedDevices.any { it.status == ConnectionStatus.CONNECTING }
+
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -181,7 +187,9 @@ private fun DeviceStatusBar(
                     .clip(CircleShape)
                     .background(
                         when {
-                            connectedDevices.isNotEmpty() -> MaterialTheme.colorScheme.primary
+                            hasConnected -> MaterialTheme.colorScheme.primary
+                            hasConnecting -> MaterialTheme.colorScheme.tertiary
+                            isScanning -> MaterialTheme.colorScheme.tertiary
                             isServerRunning -> MaterialTheme.colorScheme.tertiary
                             else -> MaterialTheme.colorScheme.error
                         }
@@ -191,24 +199,41 @@ private fun DeviceStatusBar(
             Text(
                 when {
                     isScanning -> "正在扫描附近设备..."
-                    connectedDevices.isNotEmpty() -> "已连接 ${connectedDevices.size} 台设备"
+                    hasConnecting -> "正在连接设备..."
+                    hasConnected -> "已连接 $connectedCount 台设备"
                     isServerRunning -> "服务就绪 · 等待连接"
                     else -> "服务未启动"
                 },
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (connectedDevices.isNotEmpty()) FontWeight.Medium else FontWeight.Normal
+                fontWeight = if (hasConnected || hasConnecting) FontWeight.Medium else FontWeight.Normal
             )
         }
 
         if (connectedDevices.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(connectedDevices) { device ->
+                items(connectedDevices, key = { it.device.fingerprint }) { conn ->
+                    val isConnecting = conn.status == ConnectionStatus.CONNECTING
                     AssistChip(
-                        onClick = { onDisconnect(device) },
-                        label = { Text(device.alias, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Icon(Icons.Default.Link, null, Modifier.size(14.dp)) },
+                        onClick = { onDisconnect(conn.device) },
+                        label = {
+                            Text(
+                                if (isConnecting) "${conn.device.alias} · 连接中"
+                                else conn.device.alias,
+                                fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            if (isConnecting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 1.5.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Link, null, Modifier.size(14.dp))
+                            }
+                        },
                         trailingIcon = { Icon(Icons.Default.Close, "断开", Modifier.size(14.dp)) },
                         shape = RoundedCornerShape(20.dp)
                     )
@@ -234,7 +259,7 @@ private fun DeviceStatusBar(
             }
             Spacer(Modifier.height(4.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(discoveredDevices) { device ->
+                items(discoveredDevices, key = { it.fingerprint }) { device ->
                     AssistChip(
                         onClick = { onConnect(device) },
                         label = { Text(device.alias, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },

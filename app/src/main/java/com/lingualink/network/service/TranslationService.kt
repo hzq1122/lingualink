@@ -41,8 +41,8 @@ class TranslationService : Service() {
 
     private fun acquireWakeLock() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lingualink:service")
-            .apply { acquire() }
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "com.lingualink:service")
+            .apply { acquire(10 * 60 * 1000L) }
     }
 
     private fun releaseWakeLock() {
